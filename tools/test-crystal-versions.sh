@@ -3,7 +3,7 @@
 # use podman to get a list of crystallang/crystal docker image versions, and then
 # work backwards to find the earliest which passes the spec tests
 
-set -e
+set -e -o pipefail
 
 DEFAULT_CACHE_TIME=3600
 IMAGE_NAME="docker.io/crystallang/crystal"
@@ -22,12 +22,12 @@ main() {
 
   check_bash_version
 
-  set -o pipefail
-
   basedir="$(cd "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
   toolsdir="${basedir}/tools"
   cachedir="${basedir}/.cache"
   toolname="$(basename -- "${BASH_SOURCE[0]}")"
+
+  parse_options "$@"
 
   mkdir -p "$cachedir"
 
@@ -44,27 +44,91 @@ main() {
     FAIL 'latest version (%s) did not pass' "$last_version"
   fi
 
-  for version in "${available_versions[@]:1}"; do
-    if ! test_version "$version"; then
-      break
-    else
-      last_version="$version"
-    fi
-  done
+  if [[ -n "$TEST_PARALLEL" ]]; then
+    test_in_parallel last_version "${available_versions[@]:1}"
+  else
+    test_sequentially last_version "${available_versions[@]:1}"
+  fi
 
   echo "$last_version"
 
   INFO 'latest version to pass: %s' "$last_version"
+}
 
-  # printf '  %s\n' "${available_versions[@]}"
+parse_options() {
+  local opt
+  while [[ $# -gt 0 ]]; do
+    opt="$1"
+    shift
+    case "$opt" in
+      --run-spec)
+        run_spec "$@"
+        exit "$?"
+        ;;
+      --container-test)
+        container_test "$@"
+        exit "$?"
+        ;;
+      *)
+        FAIL '%s: unknown option' "$opt"
+        ;;
+    esac
+  done
+}
+
+test_sequentially() {
+  local _var="$1"
+  shift
+
+  for version in "$@"; do
+    if ! test_version "$version"; then
+      break
+    else
+      printf -v "$_var" %s "$version"
+    fi
+  done
+}
+
+test_parallel() {
+  local _var="$1" _version
+  shift
+
+  local -A results
+
+  rm -rf "${cachedir}/results" > /dev/null 2>&1 || true
+  mkdir "${cachedir}/results"
+
+  parallel -j 4 -n 1 "${BASH_SOURCE[0]}" --container-test ::: "$@"
+
+  for _version in "$@"; do
+    if [[ -f "${cachedir}/results/${version}.out" ]]; then
+      results["$version"]="$(< "${cachedir}/results/${version}.out")"
+    fi
+  done
+
+  for _version in "$@"; do
+    [[ "${results[${_version}]}" -ne 0 ]] && break
+    printf -v "$_var" %s "$_version"
+  done
 }
 
 test_version() {
   local ver="$1" rc user=ubuntu
   local image="${IMAGE_NAME}:${ver}"
-  local -a podman_run_options=(--arch amd64 --entrypoint /bin/bash)
 
   INFO 'testing %s' "$ver"
+
+  run_container "$ver"
+  rc=$?
+
+  INFO 'returned code %d' "$rc"
+
+  return "$rc"
+}
+
+run_container() {
+  local image="$1"
+  local -a podman_run_options=(--arch amd64 --entrypoint /bin/bash)
 
   if podman run "${podman_run_options[@]}" id "$user" > /dev/null 2>&1; then
     podman_run_options+=(--user "$user")
@@ -76,17 +140,20 @@ test_version() {
     "$image" \
     "/repo/tools/${toolname}" --run-spec
 
-  # <<< "cd /repo && crystal spec --fail-fast --order random -v"
-  rc=$?
-
-  INFO 'returned code %d' "$rc"
-
-  return "$rc"
 }
 
 run_spec() {
   cd "$REPO_MOUNT"
   crystal spec --fail-fast --order random -v --time
+}
+
+container_test() {
+  local version="$1"
+  run_container "$version"
+  rc=$?
+
+  mkdir -p "${cachedir}/results"
+  echo "$rc" > "${cachedir}/results/${version}.out"
 }
 
 pull_images() {
@@ -205,9 +272,4 @@ check_bash_version() {
   fi
 }
 
-if [[ "$1" == --run-spec ]]; then
-  shift
-  run_spec
-else
-  main "$@"
-fi
+main "$@"
