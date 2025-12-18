@@ -99,7 +99,7 @@ test_sequentially() {
   shift
 
   for version in "$@"; do
-    if ! test_version "${IMAGE_NAME}:${version}"; then
+    if ! test_version "$version"; then
       break
     else
       printf -v "$_var" %s "$version"
@@ -135,8 +135,6 @@ test_version() {
   local ver="$1" rc user=ubuntu
   local image="${IMAGE_NAME}:${ver}"
 
-  INFO 'testing %s' "$ver"
-
   run_container "$image"
   rc=$?
 
@@ -148,6 +146,8 @@ test_version() {
 run_container() {
   local image="$1"
   local -a podman_run_options=(--arch amd64 --entrypoint /bin/bash)
+
+  INFO 'testing %s' "$ver"
 
   if podman run "${podman_run_options[@]}" id "$user" > /dev/null 2>&1; then
     podman_run_options+=(--user "$user")
