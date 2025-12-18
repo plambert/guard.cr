@@ -146,7 +146,7 @@ class CLI
     end
 
     if minimum_tag = minimum
-      tags.reject! { |tag| tag < minimum_tag }
+      tags.select! { |tag| tag >= minimum_tag }
     end
 
     case @mode
@@ -162,6 +162,7 @@ class CLI
         major = tag.major || 0
         minor = tag.minor || 0
         patch = tag.patch || 0
+        latest[{major, minor}] ||= tag
         latest[{major, minor}] = tag if (latest[{major, minor}]?.try(&.patch) || 0) < patch
       end
       latest.values.sort!.each do |tag|
