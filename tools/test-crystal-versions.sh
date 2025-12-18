@@ -113,8 +113,8 @@ test_in_parallel() {
 
   local -A results
 
-  rm -rf "${cachedir}/results" > /dev/null 2>&1 || true
-  mkdir "${cachedir}/results"
+  mkdir -p "${cachedir}/results"
+  rm -f "$cachedir"/results/*.out "$cachedir"/results/*.rc > /dev/null 2>&1 || true
 
   parallel --line-buffer -j "$parallel_test_count" -n 1 "${BASH_SOURCE[0]}" --container-test ::: "$@"
 
@@ -133,9 +133,8 @@ test_in_parallel() {
 
 test_version() {
   local ver="$1" rc user=ubuntu
-  local image="${IMAGE_NAME}:${ver}"
 
-  run_container "$image"
+  run_container "$ver"
   rc=$?
 
   INFO 'returned code %d' "$rc"
@@ -144,21 +143,30 @@ test_version() {
 }
 
 run_container() {
-  local image="$1"
+  local ver="$1" user
+  local image="${IMAGE_NAME}:${ver}"
   local -a podman_run_options=(--arch amd64 --entrypoint /bin/bash)
 
   INFO 'testing %s' "$ver"
 
-  if podman run "${podman_run_options[@]}" id "$user" > /dev/null 2>&1; then
-    podman_run_options+=(--user "$user")
+  if [[ -n "${user_for_version[${ver}]}" ]]; then
+    user="${user_for_version[${ver}]}"
+  elif podman run "${podman_run_options[@]}" "$image" id ubuntu > /dev/null 2>&1; then
+    user=ubuntu
+  else
+    user=root
   fi
+
+  user_for_version["$ver"]="$user"
+
+  podman_run_options+=(--user "$user")
 
   podman run -i \
     "${podman_run_options[@]}" \
     --volume "$(pwd):${REPO_MOUNT}" \
     "$image" \
-    "/repo/tools/${toolname}" --run-spec
-
+    "/repo/tools/${toolname}" --run-spec \
+    > "${cachedir}/results/${ver}.out" 2>&1
 }
 
 run_spec() {
@@ -171,7 +179,7 @@ container_test() {
   mkdir -p "${cachedir}/results"
 
   INFO 'starting test of version %s' "$version"
-  run_container "${IMAGE_NAME}:${version}"
+  run_container "$version"
   rc=$?
 
   echo "$rc" > "${cachedir}/results/v${version}.rc"
