@@ -5,8 +5,9 @@
 # `guard!` variant when `false` is an acceptable value.
 #
 module Guard
-  # Guard the value in an assignment; if the value is false or nil, immediately return nil
-  # from the method
+  # Guard the value in an assignment. If the value is false or nil, either raise the
+  # exception returned by the block, or if no block is given, immediately return from
+  # the method.
   #
   # ```
   # def my_method
@@ -16,23 +17,17 @@ module Guard
   # end
   # ```
   #
-  macro guard(value)
-    (({{ value }}) || return)
-  end
-
-  # Guard a value in an assignment; if the value is false or nil, raise the
-  # yielded value
-  #
-  # ```
-  # def my_method
-  #   lemur = guard @lemur do
-  #     RuntimeError.new "whoopsie!"
-  #   end
-  # end
-  # ```
-  #
-  macro guard(value, &)
-    ({{ value }}) || raise(yield)
+  macro guard(expr, &block)
+    {% if block %}
+      begin
+        %value = ({{ expr }})
+        raise({{ yield }}) unless %value
+        %value
+      end
+    {% else %}
+      (({{ expr }}) || return)
+    {% end %}
+    # { % debug %}
   end
 
   # Guard the value in an assignment; if the value is nil (and only nil), immediately
@@ -44,22 +39,30 @@ module Guard
   # end
   # ```
   #
-  macro guard(value)
-    (({{ value }}).tap { |val| return if val.nil? })
+  macro guard!(expr, &block)
+    {% if block %}
+      {% if expr.is_a?(Assign) %}
+        raise({{ yield }}) if ({{ expr }}).nil?
+      {% else %}
+        begin
+          %value = ({{ expr }})
+          raise({{ yield }}) if %value.nil?
+          %value
+        end
+      {% end %}
+    {% else %}
+      {% if expr.is_a?(Assign) %}
+        return if ({{ expr }}).nil?
+      {% else %}
+        begin
+          %value = ({{ expr }})
+          return if %value.nil?
+          %value
+        end
+      {% end %}
+    {% end %}
+    # { % debug %}
   end
 
-  # Guard a value in an assignment; if the value is nil (and only nil), raise the
-  # yielded exception
-  #
-  # ```
-  # def my_method
-  #   lemur = guard! @lemur do
-  #     RuntimeError.new "whoopsie!"
-  #   end
-  # end
-  # ```
-  #
-  macro guard!(value, &)
-    (({{ value }}).tap { |val| raise(yield) if val.nil? })
-  end
+  class Exception < ::Exception; end
 end
