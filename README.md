@@ -3,8 +3,8 @@
 Simple assertion macros to make code a little clearer.
 
 Why? The static code analysis tool [ameba](https://github.com/crystal-ameba/ameba) has a rule called `Style/GuardClause`
-which is described as "Check for conditionals that can be replaced with guard clauses."
-It's a generally good idea; for example, instead of writing this:
+which is described as “Check for conditionals that can be replaced with guard clauses.”
+It’s a generally good idea; for example, instead of writing this:
 
 ```crystal
 def my_method
@@ -26,7 +26,7 @@ end
 
 which makes a lot of sense to me. However, at the time of this writing, the rule is
 disabled by default in **ameba**. I think this is probably because having an assignment on the right of an inline conditional like that is hard to read&mdash;at least, I know
-it's hard to read for _me_.
+it’s hard to read for _me_.
 
 So I wrote `guard` which you use like this:
 
@@ -41,7 +41,7 @@ class MyClass
 end
 ```
 
-That's it—just put `guard` in front of the value in the assignment, and if the value is
+That’s it—just put `guard` in front of the value in the assignment, and if the value is
 `false` or `nil` then the macro will return from the method immediately.
 
 If instead you want to raise an exception, create an Exception in a block:
@@ -69,7 +69,7 @@ class MyClass
   def my_method
     thing = guard! @thing
 
-    # use thing, even if it's `false`
+    # use thing, even if it’s `false`
   end
 end
 ```
