@@ -9,16 +9,15 @@ DEFAULT_CACHE_TIME=3600
 IMAGE_NAME="docker.io/crystallang/crystal"
 MINIMUM_VERSION="${MINIMUM_VERSION:-1.0.0}"
 REPO_MOUNT=/repo
+PARALLEL_TEST_COUNT_DARWIN=2
+PARALLEL_TEST_COUNT_LINUX=4
 
 main() {
   local version last_version
   declare -g basedir toolsdir cachedir
+  declare -g parallel_test_count="${PARALLEL_TEST_COUNT_LINUX}"
   declare -g -a available_versions=()
-
-  if ! command -v podman > /dev/null 2>&1; then
-    echo 1>&2 "$0: could not find podman command, make sure it's in your PATH"
-    exit 1
-  fi
+  declare -g -A user_for_version
 
   check_bash_version
 
@@ -27,7 +26,20 @@ main() {
   cachedir="${basedir}/.cache"
   toolname="$(basename -- "${BASH_SOURCE[0]}")"
 
+  if [[ "$OSTYPE" == darwin* ]]; then
+    parallel_test_count="${PARALLEL_TEST_COUNT_DARWIN}"
+  fi
+
   parse_options "$@"
+
+  if [[ -d "/opt/podman/bin" ]] && [[ ":$PATH:" != *":/opt/podman/bin:"* ]]; then
+    export PATH="${PATH}:/opt/podman/bin"
+  fi
+
+  if ! command -v podman > /dev/null 2>&1; then
+    echo 1>&2 "$0: could not find podman command, make sure it's in your PATH"
+    exit 1
+  fi
 
   mkdir -p "$cachedir"
 
@@ -35,24 +47,24 @@ main() {
 
   INFO '%d available versions of crystal' "${#available_versions[*]}"
 
-  INFO 'pulling images in parallel'
+  read_cached_user_for_version
 
-  pull_images "${available_versions[@]}"
-
-  last_version="${available_versions[0]}"
-  if ! test_version "$last_version"; then
-    FAIL 'latest version (%s) did not pass' "$last_version"
+  if [[ ! -n "$NO_PULL" ]]; then
+    INFO 'pulling images in parallel'
+    pull_images "${available_versions[@]}"
   fi
 
   if [[ -n "$TEST_PARALLEL" ]]; then
-    test_in_parallel last_version "${available_versions[@]:1}"
+    test_in_parallel last_version "${available_versions[@]}"
   else
-    test_sequentially last_version "${available_versions[@]:1}"
+    test_sequentially last_version "${available_versions[@]}"
   fi
 
   echo "$last_version"
 
   INFO 'latest version to pass: %s' "$last_version"
+
+  write_cached_user_for_version
 }
 
 parse_options() {
@@ -77,11 +89,17 @@ parse_options() {
 }
 
 test_sequentially() {
-  local _var="$1"
+  local _var="$1" version
+  shift
+
+  if ! test_version "$1"; then
+    FAIL 'latest version (%s) did not pass' "$1"
+  fi
+  printf -v "$_var" %s "$1"
   shift
 
   for version in "$@"; do
-    if ! test_version "$version"; then
+    if ! test_version "${IMAGE_NAME}:${version}"; then
       break
     else
       printf -v "$_var" %s "$version"
@@ -89,7 +107,7 @@ test_sequentially() {
   done
 }
 
-test_parallel() {
+test_in_parallel() {
   local _var="$1" _version
   shift
 
@@ -98,11 +116,12 @@ test_parallel() {
   rm -rf "${cachedir}/results" > /dev/null 2>&1 || true
   mkdir "${cachedir}/results"
 
-  parallel -j 4 -n 1 "${BASH_SOURCE[0]}" --container-test ::: "$@"
+  parallel --line-buffer -j "$parallel_test_count" -n 1 "${BASH_SOURCE[0]}" --container-test ::: "$@"
 
   for _version in "$@"; do
-    if [[ -f "${cachedir}/results/${version}.out" ]]; then
-      results["$version"]="$(< "${cachedir}/results/${version}.out")"
+    if [[ -f "${cachedir}/results/v${version}.rc" ]]; then
+      read -r "results[${version}]" < "${cachedir}/results/v${version}.rc"
+      # results["$version"]="$(< "${cachedir}/results/v${version}.rc")"
     fi
   done
 
@@ -118,7 +137,7 @@ test_version() {
 
   INFO 'testing %s' "$ver"
 
-  run_container "$ver"
+  run_container "$image"
   rc=$?
 
   INFO 'returned code %d' "$rc"
@@ -149,11 +168,13 @@ run_spec() {
 
 container_test() {
   local version="$1"
-  run_container "$version"
+  mkdir -p "${cachedir}/results"
+
+  INFO 'starting test of version %s' "$version"
+  run_container "${IMAGE_NAME}:${version}"
   rc=$?
 
-  mkdir -p "${cachedir}/results"
-  echo "$rc" > "${cachedir}/results/${version}.out"
+  echo "$rc" > "${cachedir}/results/v${version}.rc"
 }
 
 pull_images() {
@@ -161,7 +182,7 @@ pull_images() {
   for ver; do
     images+=("${IMAGE_NAME}:${ver}")
   done
-  parallel -n 1 podman pull -q ::: "${images[@]}"
+  parallel --line-buffer -j "$parallel_test_count" -n 1 podman pull -q ::: "${images[@]}"
   # podman
 }
 
@@ -177,6 +198,32 @@ fetch_crystal_versions() {
   fi
 
   mapfile -t "$_var" < <(reverse_lines "$file")
+}
+
+read_cached_user_for_version() {
+  local _ver _user
+  if [[ -f "${cachedir}/container-user.cache" ]]; then
+    while IFS='=' read -r _ver _user; do
+      printf -v "user_for_version[${_ver}]" %s "$_user"
+    done < "${cachedir}/container-user.cache"
+  fi
+}
+
+write_cached_user_for_version() {
+  local cachefile="container-user.cache"
+  local tmpfile=".${cachefile}"
+  if ! dump_user_for_version > "${cachedir}/${tmpfile}"; then
+    INFO 'could not write container user cache'
+  else
+    /bin/mv -f "${cachedir}/${tmpfile}" "${cachedir}/${cachefile}" > /dev/null 2>&1
+  fi
+}
+
+dump_user_for_version() {
+  local _ver
+  for _ver in "${!user_for_version[@]}"; do
+    printf '%s\t%s\n' "$_ver" "${user_for_version[$_ver]}"
+  done
 }
 
 set_cache_filename() {
@@ -223,13 +270,17 @@ INFO() {
   __LOG INFO "$@"
 }
 
+WARN() {
+  __LOG WARN "$@"
+}
+
 FAIL() {
   __LOG ERROR "$@"
   exit 1
 }
 
 __LOG() {
-  local _level="${1^^}" _fmt=%s
+  local _level="${1^^}" _fmt=%s _color
   shift
   if [[ $# -gt 1 ]]; then
     _fmt="$1"
@@ -237,7 +288,18 @@ __LOG() {
   fi
 
   if [[ -t 1 ]]; then
-    printf 1>&2 '\e[34;1m[%5s]\e[0m ' "$_level"
+    case "$_level" in
+      ERROR)
+        _color='31;1'
+        ;;
+      WARN)
+        _color='33'
+        ;;
+      *)
+        _color='34;1'
+        ;;
+    esac
+    printf 1>&2 '\e[%sm[%5s]\e[0m ' "$_color" "$_level"
   else
     printf 1>&2 '[%5s] ' "$_level"
   fi
