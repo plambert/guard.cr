@@ -109,7 +109,7 @@ fetch_crystal_versions() {
     crystal run "${toolsdir}/find-latest-crystal-versions.cr" -- --latest "--${MINIMUM_VERSION}" > "$file"
   fi
 
-  mapfile -t "$_var" < <(tail -r "$file")
+  mapfile -t "$_var" < <(reverse_lines "$file")
 }
 
 set_cache_filename() {
@@ -139,6 +139,17 @@ remove_tempfiles() {
     rm -f "${tmpfiles[@]}" > /dev/null 2>&1 || true
     tmpfiles=()
   fi
+}
+
+reverse_lines() {
+  case "$OSTYPE" in
+    darwin*)
+      tail -r "$@"
+      ;;
+    *)
+      tac "$@"
+      ;;
+  esac
 }
 
 INFO() {
