@@ -8,6 +8,6 @@ development_dependencies:
   guard:
     github: plambert/guard.cr
 
-crystal: ">= 1.18.2"
+crystal: ">= 1.0.0"
 
 license: MIT
