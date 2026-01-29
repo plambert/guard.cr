@@ -25,7 +25,8 @@ end
 ```
 
 which makes a lot of sense to me. However, at the time of this writing, the rule is
-disabled by default in **ameba**. I think this is probably because having an assignment on the right of an inline conditional like that is hard to read&mdash;at least, I know
+disabled by default in **ameba**. I think this is probably because having an assignment
+on the right of an inline conditional like that is hard to read&mdash;at least, I know
 it’s hard to read for _me_.
 
 So I wrote `guard` which you use like this:
