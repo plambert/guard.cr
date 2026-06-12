@@ -25,9 +25,9 @@ end
 ```
 
 which makes a lot of sense to me. However, at the time of this writing, the rule is
-disabled by default in **ameba**. I think this is probably because having an assignment
-on the right of an inline conditional like that is hard to read&mdash;at least, I know
-it’s hard to read for _me_.
+disabled by default in **ameba**. I don't know why, but for me, I would disable it
+because having an assignment on the right of an inline conditional like that is hard
+to read&mdash;at least, I know it’s hard to read for _me_.
 
 So I wrote `guard` which you use like this:
 
@@ -43,7 +43,7 @@ end
 ```
 
 That’s it—just put `guard` in front of the value in the assignment, and if the value is
-`false` or `nil` then the macro will return from the method immediately.
+`false` or `nil` then the macro will return `nil` from the method immediately.
 
 If instead you want to raise an exception, create an Exception in a block:
 
