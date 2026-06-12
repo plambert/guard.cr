@@ -1,12 +1,8 @@
 name: guard
-version: 1.0.0
+version: 1.0.1
 
 authors:
   - Paul M. Lambert <plambert@plambert.net>
-
-#development_dependencies:
-#  guard:
-#    github: plambert/guard.cr
 
 crystal: ">= 1.0.0"
 
