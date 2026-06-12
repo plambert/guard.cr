@@ -4,9 +4,9 @@ version: 1.0.0
 authors:
   - Paul M. Lambert <plambert@plambert.net>
 
-development_dependencies:
-  guard:
-    github: plambert/guard.cr
+#development_dependencies:
+#  guard:
+#    github: plambert/guard.cr
 
 crystal: ">= 1.0.0"
 
